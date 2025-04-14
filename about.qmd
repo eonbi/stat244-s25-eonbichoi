@@ -1,0 +1,9 @@
+---
+title: "About"
+---
+
+This is my website for STAT 244. I'm a senior at Mount Holyoke College.
+
+```{r}
+1 + 1
+```
