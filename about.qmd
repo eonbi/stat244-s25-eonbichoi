@@ -1,9 +1,17 @@
 ---
 title: "About"
+date: "2025-05-02"
 ---
 
-This is my website for STAT 244. I'm a senior at Mount Holyoke College.
+Hey! I'm Eonbi. Welcome to my website. I'm currently a senior at Mount Holyoke College studying Statistics. Right now, I'm learning about: Causal inference, Computational statistics, Mathematical statistics, and Sports analytics.
 
-```{r}
-1 + 1
-```
+[![Linkedin Badge](https://img.shields.io/badge/-LinkedIn-blue?style=for-the-badge&logo=Linkedin&logoColor=white&link=www.linkedin.com/in/eonbi-choi)](https://www.linkedin.com/in/eonbi-choi)
+[![Gmail Badge](https://img.shields.io/badge/Gmail-d14836?style=for-the-badge&logo=Gmail&logoColor=white&link=mailto:choi25e@mtholyoke.com)](mailto:choi25e@mtholyoke.com)
+[![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white&link=https://github.com/eonbi)](https://github.com/eonbi)
+
+![](images/DSC09624_sq.jpg) ![](images/IMG_2301_sq.jpeg) 
+![](images/IMG_1409_sq.jpeg) ![](images/IMG_0734_sq.jpeg) 
+
+
+
+
