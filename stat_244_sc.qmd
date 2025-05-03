@@ -1,5 +1,32 @@
 ---
-title: "stat_244_sc"
+title: "STAT 244-SC"
 format: html
+date: "2025-05-03"
 ---
+
+# Pit Stop Decisions in Formula 1
+
+Our project explores the relationship between pit stops and variables such as lap time, lap number, tire age, and type of tire. These are factors that often play a clear role in when teams choose to make a stop. We are interested in predicting the probability of making a pit stop during the 2024 Miami Grand Prix, considering factors such as lap time, track progress, tire age, and the type of tire used. 
+
+The data used in this study were obtained from the f1dataR R package that accesses Formula 1 data via the [FastF1 Python library](https://docs.fastf1.dev/). The dataset includes lap-by-lap session data from the 2024 Miami Grand Prix and comprise 1,111 laps and 32 variables. These variables include driver details, lap times, pit in/out times, tire information, and track status. More detailed information about this package can be found in its [API documentation](https://cran.r-project.org/web/packages/f1dataR/f1dataR.pdf).
+
+
+## Some visualizations
+
+The frequency of pit stops across laps during the 2024 Miami Grand Prix. It helps visualize when teams tend to stop during the race.
+
+![](plots/pit_stop_dist.jpeg)
+
+The density of lap times for each team during the race. We can compare the performance and variability in lap times across different teams.
+
+![](plots/laptime_byteam.jpeg)
+
+
+The distribution of tire life (measured in laps) for each tire compound used in the race.
+
+![](plots/tire_comp_dist.jpeg)
+
+
+Stay tuned for more!
+
 
