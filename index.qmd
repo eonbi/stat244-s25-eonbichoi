@@ -2,4 +2,4 @@
 title: "Welcome to my website!"
 ---
 
-Built this for my STAT 244 Computation Stats class!
+Built this for my STAT 244 Computational Stats class!
