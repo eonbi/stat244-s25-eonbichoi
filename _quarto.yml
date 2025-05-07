@@ -3,7 +3,7 @@ project:
   output-dir: docs
 
 website:
-  title: "eonbi's website for stat 244"
+  title: "Eonbi's website for STAT 244"
   navbar:
     left:
       - href: index.qmd

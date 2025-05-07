@@ -1,6 +1,5 @@
 ---
-title: "Final Paper"
-subtitle: "STAT 244-SC"
+title: "STAT 244-SC Final Paper"
 author: "Eonbi Choi & Yerim Oh"
 date: "2025-05-07"
 ---
