@@ -12,6 +12,8 @@ website:
         text: "About me"
       - href: stat_244_sc.qmd
         text: "STAT 244-SC"
+      - href: Final_Paper.qmd
+        text: "STAT 244-SC Final Paper"
 
 format:
   html:
