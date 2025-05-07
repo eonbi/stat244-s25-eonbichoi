@@ -2,9 +2,7 @@
 title: "Final Paper"
 subtitle: "STAT 244-SC"
 author: "Eonbi Choi & Yerim Oh"
-format: html
 date: "2025-05-07"
-editor: visual
 ---
 
 ```{r, warning=FALSE, message=FALSE, echo=FALSE}
