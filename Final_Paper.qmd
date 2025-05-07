@@ -2,8 +2,8 @@
 title: "Final Paper"
 subtitle: "STAT 244-SC"
 author: "Eonbi Choi & Yerim Oh"
-date: "`r format(Sys.time(), '%d %B, %Y')`"
-format: pdf
+format: html
+date: "2025-05-07"
 editor: visual
 ---
 
@@ -678,9 +678,3 @@ While all the other variables stay the same, we predict that the probability a d
 The linear and logistic regression models provide a practical method for predicting pit-stop laps based on multiple factors, while k-fold cross-validation offers an approach for selecting the most optimized models. However, the prediction results from the logistic model were somewhat limited, with predictions averaging around 50% even with extreme parameters, making it challenging to accurately predict pit-stop laps. This limitation is understandable because predicting pit-stop timing in real races is one of the most crucial and difficult decisions in race strategy.
 
 For future studies, we could consider additional factors that influence car speeds or tire management, as well as apply methods that are capable of handling more complex models to observed more detailed and comprehensive analyses.
-
-# Appendix
-
-```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
-
-```
