@@ -1,0 +1,686 @@
+---
+title: "Final Paper"
+subtitle: "STAT 244-SC"
+author: "Eonbi Choi & Yerim Oh"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+format: pdf
+editor: visual
+---
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+library(readr)
+library(visdat)
+library(dplyr)
+library(ggplot2)
+library(gridExtra) # allows to show multiplot plots on the same page
+library(ggmosaic)
+library(tidyverse)
+library(tidymodels)
+library(caret)
+```
+
+\vspace{18pt}
+
+# F1 Miami Grand Prix 2024 Pit Stop Analysis
+
+## Abstract
+
+In sports, data is collected to record athletes' performances, which helps in making decisions to improve outcomes. In Formula 1 and other motorsports, tire management plays an important role in race strategy. Tires directly impact car performance as they are in contact with the track and transfers all the car's power and movements to the track surface. Tire degradation influences major decisions such as pit stop timing during a race, where minor misjudgments can result in serious consequences in a fast-paced sports like Formula 1. Our study evaluates the relationship between pit stop laps and tire and lap information though employing linear regression models, cross validation, k-fold cross validation, and logistic regression. The objective is to improve pit stop timing prediction to facilitate effective strategic planning for optimizing pit stop timing, ultimately giving drivers a decisive advantage in race management.
+
+\vspace{18pt}
+
+## Dataset
+
+The data used in this study were obtained from the f1dataR R package that accesses Formula 1 data via the [FastF1 Python library](https://docs.fastf1.dev/). The dataset includes lap-by-lap session data from the 2024 Miami Grand Prix and comprise 1,111 laps and 32 variables. These variables include driver details, lap times, pit in/out times, tire information, and track status. More detailed information about this package can be found in its [API documentation](https://cran.r-project.org/web/packages/f1dataR/f1dataR.pdf).
+
+```{r, echo=FALSE}
+load("data/lap_dat.Rdata")
+head(lap_dat)
+```
+
+## Variables of interest
+
+#### Numerical variables:
+
+-   `lap_time`: Recorded time to complete a lap (seconds)
+
+-   `lap_number`: Lap number from which the telemetry data was recorded (number of laps)
+
+-   `tyre_life`: Number of laps completed on a set of tires (number of laps)
+
+#### Categorical variables:
+
+-   `compound`: Type of tire used (SOFT, MEDIUM, HARD)
+
+-   `pit_in`: Whether a driver made a pit stop during a lap (binary: 0 = no pit stop, 1 = pit stop occured)
+
+## Missing Data in `lap_time`
+
+```{r, echo=FALSE}
+lap_re <- lap_dat %>%
+  select(lap_time, lap_number, compound, tyre_life) %>%
+  mutate(compound = as.factor(compound),
+         pit_in = ifelse(is.nan(lap_dat$pit_in_time), 0, 1))
+# head(lap_re)
+```
+
+```{r, echo=FALSE}
+# visualize missingness
+vis_miss(lap_re)
+
+# calculate extend of missingness
+print(paste("There are ", sum(is.na(lap_re$lap_time)), " missing lap time values"))
+```
+
+```{r, echo=FALSE}
+# drop missing values
+miami2024 <- na.omit(lap_re)
+```
+
+The dataset contains five missing lap times. Out of 5 missing lap time records four records have a track status code of 41. However, no description of this code value is provided in the API. Thus, we assume that either the track was not fully cleared or conditions were not suitable for racing. The other missing record was due to a driver failing to complete a lap due to collision. Since the missing observations are less than 0.1% of the entire observation, we decided to drop these records.
+
+\vspace{18pt}
+
+## **Exploratory Data Analysis & Visualization**
+
+**Distribution of Pit Stops by Lap**
+
+This plot shows the frequency of pit stops across laps during the 2024 Miami Grand Prix. It helps visualize when teams tend to stop during the race. Many teams pitted to change tires during the first half of the race and the most common pit stop occurring around lap 28. This race was unique in that some drivers performed a one-stop strategy, while others went for a two-stop approach. These decisions were influenced by various factors such as track position, gaps to nearby drivers, tire condition, and more. Pit stops in the later stages of the race likely reflect either a two-stop strategy or an attempt to set the fastest lap and earn an extra point.
+
+```{r, echo=FALSE}
+# new data that stores the number of pit stops for each lap
+lapnum_pit <- data.frame(lap_num = rep(NA, 57),
+                         pit_num = rep(NA, 57))
+for (i in 1:57){
+  lapnum_pit$lap_num[i] <- i
+  lapnum_pit$pit_num[i] <- lap_re %>%
+    filter(pit_in == 1, lap_number == i) %>% nrow()
+}
+  
+ggplot(lapnum_pit, aes(x = lap_num, y = pit_num)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribution of Pit Stops by Lap",
+       x = "Lap Number", y = "Pit Stops Counts") +
+  theme_bw()
+```
+
+**Density of Lap Times by Team**
+
+This plot shows the distribution of lap times for each team during the race. We can compare the performance and variability in lap times across different teams. For most teams, the lap times are generally under 100 seconds, with some laps approaching 110 seconds. These patterns are largely consistent across teams, though some, such as Mercedes and Williams, show a few outliers on the higher end, which indicates occasional slower laps.
+
+```{r, warning=FALSE, echo=FALSE}
+cols <- c("#FF87BC", "#229971", "#E80020", "#B6BABD", "#52E252",
+          "#FF8000", "#27F4D2", "#6692FF", "#3671C6", "#64C4FF")
+
+lap_dat %>%
+  ggplot(aes(x=lap_time, fill=team)) +
+  geom_density(colour="black", alpha=0.5, show.legend=FALSE) +
+  facet_wrap(~team, scales="free_x") + 
+  scale_fill_manual(values = cols) +
+  labs(x = "Lap Time (mph)", y = "Density",
+       title = "Distribution of Lap Times by Team") +
+  theme_bw()
+```
+
+**Distribution of Tire Life by Tire Compound**
+
+The plot shows the distribution of tire life (measured in laps) for each tire compound used in the race. On average, hard tires lasted very slightly longer than medium tires. Since hard and medium compounds were the most commonly used in this race, we have limited data on soft tires, roughly a quarter as much. This resulted in a narrower distribution for the soft compound. The tire compound directly affects tire life, with a trade-off between performance (speed and grip) and durability. As a result, softer compounds tend to wear out more quickly than harder ones.
+
+```{r, echo=FALSE}
+# new data that stores the tyre life at each pit stop
+compound_life <- data.frame(compound = character(),
+                            tyre_life = double())
+
+for (i in 1:nrow(lap_re)){
+  if (lap_re$pit_in[i] == 1) {
+    compound_life <- compound_life %>%
+      add_row(compound = lap_re$compound[i],
+              tyre_life = lap_re $tyre_life[i])
+  }
+}
+
+ggplot(compound_life, aes(x = compound, y = tyre_life, fill=compound)) + 
+  geom_boxplot() +
+  labs(x = "Tire Compound", y = "Tire Life (laps)",
+       title = "Distribution of Tire Life by Compound") + 
+  scale_fill_manual(values = c("#f0f0f0", "#edde09", "#ed0909")) +
+  theme_bw()
+```
+
+\newpage
+
+# Linear Regression Model
+
+## Research questions
+
+1.  Were drivers more likely to make pit stops when their lap time was longer and their tires were older compared to when their lap time was shorter and their tires were less used?
+
+2.  Were drivers more likely to make pit stops when their lap times were longer, their tires were older, and considering the type of tires they were using and their progress in the race?
+
+## Linear Models
+
+-   **Model 1**:
+
+$$\mathbb{E}(pit\_in \mid lap\_time,\ tyre\_life) = \beta_0 + \beta_1(lap\_time) + \beta_2(tyre\_life)$$
+
+-   **Model 2**:
+
+$$
+\begin{aligned}
+\mathbb{E}(pit\_in \mid lap\_time, \ lap\_number, \ compound, \ tyre\_life)  &= \beta_0 + \beta_1(lap\_time) \\ &+ \beta_2(lap\_number) + \beta_3(compound) \\ &+ \beta_4(tyre\_life) 
+\end{aligned}
+$$
+
+```{r, echo=FALSE}
+# STEP 1: Model Specification
+lm_spec <- linear_reg() %>%
+  set_mode("regression") %>%
+  set_engine("lm")
+
+# STEP 2: Model estimation
+# first linear model
+pit_lm1 <- lm_spec %>%
+  fit(pit_in ~ lap_time + tyre_life, data = miami2024)
+pit_lm1 %>% tidy()
+
+# second linear model
+pit_lm2 <- lm_spec %>%
+  fit(pit_in ~ lap_time + lap_number + compound + tyre_life, data = miami2024)
+pit_lm2 %>% tidy()
+```
+
+The regression results show that drivers were slightly more likely to make pit stops when their lap times were longer and their tires were older. In the extended model, lap time and tire age remained strong predictors and suggested that there are fewer stops later in the race with lap number having a slight negative effect. Tire compound had a small and non-significant effect. This indicates that tire compound did not meaningfully influence pit stop decisions when other factors were considered.
+
+\vspace{18pt}
+
+## Cross Validation
+
+Cross-validation is a statistical method used to evaluate how well a model performs by splitting the data into multiple subsets to train the model on some subsets and validate it on the remaining subsets.
+
+**Goal**: Provide a more reliable and unbiased estimate of a model's performance predicting new data, in order to detect overfitting and improve model generalization
+
+### Dividing data into test set and training set
+
+**k-fold CV**: We can use k-fold cross-validation to estimate the typical error in our model predictions for new data:
+
+  -   Divide the data into $k$ folds (or groups) of approximately equal size.
+  -   Repeat the following procedures for each fold $j = 1,2,...,k$:
+      -   Remove fold $j$ from the data set.
+      -   Fit a model using the data in the other $k-1$ folds (training).
+      -   Use this model to predict the responses for the $n_j$ cases in fold $j$: $\hat{y}_1, ..., \hat{y}_{n_j}$.
+      -   Calculate the MAE/MSE for fold $j$ (testing):
+  -   Combine this information into one measure of model quality
+
+### Error metric to use
+
+**Mean absolute error (MAE)** of an estimator measures the absolute difference between the predicted values and the actual values in the dataset. Its advantage is that its
+
+  -   $\text{MAE}_j = \frac{1}{n_j}\sum_{i=1}^{n_j} |y_i - \hat{y}_i|$
+  -   $\text{CV}_{(k)} = \frac{1}{k} \sum_{j=1}^k \text{MAE}_j$
+
+**Mean squared error (MSE)** of an estimator measures the average squared difference between the predicted values and the actual values in the dataset.
+
+  -   $\text{MSE}_j = \frac{1}{n_j}\sum_{i=1}^{n_j} (y_i - \hat{y}_i)^2$
+  -   $\text{CV}_{(k)} = \frac{1}{k} \sum_{j=1}^k \text{MSE}_j$
+
+#### MAE vs. MSE
+
+The advantage of using MAE is that it's more robust to outliers, giving equal weight to all errors. Thus, it's more suitable when outliers are not a significant concern.
+
+On the other hand, MSE gives more weight to larger errors than smaller ones, making it highly sensitive to outliers. MSE is more suitable when the risk of prediction mistakes is crucial and the goal is to minimize the risk of errors.
+
+Since outliers are less of a concern for us as they don't lead to any life threatening or other major issues, we prioritize models that are directly interpretable. Our data is less common and less familiar to many people, so we decided to choose a model based on MAE.
+
+```{r, echo=FALSE}
+# in-sample MAE and sd
+pit_lm1 %>% augment(new_data = miami2024) %>%
+  mae(truth = pit_in, estimate = .pred)
+# sigma(pit_lm1$fit)
+
+pit_lm2 %>% augment(new_data = miami2024) %>%
+  mae(truth = pit_in, estimate = .pred)
+# sigma(pit_lm2$fit)
+```
+
+\vspace{18pt}
+
+## k-fold CV implementation for different values of k
+
+### Case 1: k=5
+
+**Model 1**
+
+```{r, echo=FALSE}
+# set seed for reproducibility
+set.seed(123)
+
+pit_lm1_k5 = lm_spec %>%
+  fit_resamples(
+    pit_in ~ lap_time + tyre_life,
+    resamples = vfold_cv(miami2024, v = 5),
+    metrics = metric_set(mae, rmse)
+  )
+pit_lm1_k5 %>% collect_metrics()
+
+# get fold-by-fold results
+pit_lm1_k5 %>% unnest(.metrics) %>%
+  filter(.metric == "mae")
+```
+
+Based on the random folds above, MAE was best for fold 1 (0.048) and worst for fold 2 (0.056).
+
+**Model 2**
+
+```{r, echo=FALSE}
+# set seed for reproducibility
+set.seed(123)
+
+pit_lm2_k5 = lm_spec %>%
+  fit_resamples(
+    pit_in ~ lap_time + lap_number + compound + tyre_life,
+    resamples = vfold_cv(miami2024, v = 5),
+    metrics = metric_set(mae, rmse)
+  )
+pit_lm2_k5 %>% collect_metrics()
+
+# get fold-by-fold results
+pit_lm2_k5 %>% unnest(.metrics) %>%
+  filter(.metric == "mae")
+```
+
+Based on the random folds above, MAE was best for fold 1 (0.053) and worst for fold 2 (0.062).
+
+```{r, echo=FALSE}
+# 5-fold CV MAE and sd
+pit_lm1_k5 %>% unnest(.metrics) %>%
+  filter(.metric == "mae") %>%
+  summarize(mean = mean(.estimate), sd = sd(.estimate))
+
+pit_lm2_k5 %>% unnest(.metrics) %>%
+  filter(.metric == "mae") %>%
+  summarize(mean = mean(.estimate), sd = sd(.estimate))
+```
+
+In-sample and 5-fold CV MAE and standard deviation for both models.
+
++------------+---------------+---------------+--------------+--------------+
+| Model      | In-sample MAE | 5-fold CV MAE | In-sample SD | 5-fold CV SD |
++:===========+==============:+==============:+=============:+=============:+
+| `model_1`  | 0.05045       | 0.05073       | 0.15247      | 0.00356      |
++------------+---------------+---------------+--------------+--------------+
+| `model_2`  | 0.05975       | 0.05922       | 0.15035      | 0.00360      |
++------------+---------------+---------------+--------------+--------------+
+
+5-fold cross-validation was used to assess the performance of two models predicting pit stops. Model 1, using only lap time and tire life, achieved a mean MAE of 0.05073 with a low standard deviation (0.00356). Model 2, which adds lap number and tire compound, had a higher mean MAE of 0.05922 with a similar standard deviation (0.00360).
+
+Although Model 2 includes more predictors, it performed slightly worse than Model 1 in both cross-validation and in-sample metrics. This suggests that the additional variables do not improve prediction. Model 1 is therefore more accurate and efficient for predicting pit stops.
+
+
+\vspace{10pt}
+
+### Case 2: k=10
+
+**Model 1**
+
+```{r, echo=FALSE}
+# set seed for reproducibility
+set.seed(123)
+
+pit_lm1_cv = lm_spec %>%
+  fit_resamples(
+    pit_in ~ lap_time + tyre_life,
+    resamples = vfold_cv(miami2024, v = 10),
+    metrics = metric_set(mae, rmse)
+  )
+pit_lm1_cv %>% collect_metrics()
+
+# get fold-by-fold results
+pit_lm1_cv %>% unnest(.metrics) %>%
+  filter(.metric == "mae")
+```
+
+Based on the random folds above, the MAE was best for fold 1 with an MAE of approximately 0.037 and worst for fold 3 with an MAE of 0.061 approximately.
+
+**Model 2**
+
+```{r, echo=FALSE}
+# set seed for reproducibility
+set.seed(123)
+
+pit_lm2_cv = lm_spec %>%
+  fit_resamples(
+    pit_in ~ lap_time + lap_number + compound + tyre_life,
+    resamples = vfold_cv(miami2024, v = 10),
+    metrics = metric_set(mae, rmse)
+  )
+pit_lm2_cv %>% collect_metrics()
+
+# get fold-by-fold results
+pit_lm2_cv %>% unnest(.metrics) %>%
+  filter(.metric == "mae")
+```
+
+Based on the random folds above, MAE was best for fold 1 (0.044) and worst for fold 3 (0.070).
+
+```{r, echo=FALSE}
+# 10-fold CV MAE and sd
+pit_lm1_cv %>% unnest(.metrics) %>%
+  filter(.metric == "mae") %>%
+  summarize(mean = mean(.estimate), sd = sd(.estimate))
+
+pit_lm2_cv %>% unnest(.metrics) %>%
+  filter(.metric == "mae") %>%
+  summarize(mean = mean(.estimate), sd = sd(.estimate))
+```
+
+In-sample and 10-fold CV MAE and standard deviation for both models.
+
++------------+---------------+----------------+--------------+---------------+
+| Model      | In-sample MAE | 10-fold CV MAE | In-sample SD | 10-fold CV SD |
++:===========+==============:+===============:+=============:+==============:+
+| `model_1`  | 0.05045       | 0.05100        | 0.15247      | 0.00931       |
++------------+---------------+----------------+--------------+---------------+
+| `model_2`  | 0.05975       | 0.05939        | 0.15035      | 0.00829       |
++------------+---------------+----------------+--------------+---------------+
+
+With 10-fold cross-validation, Model 1 had a mean MAE of 0.0510, while Model 2 had a slightly higher MAE of 0.0594. Both models showed low standard deviations approximately 0.009. As in the 5-fold case, Model 1 remained slightly more accurate and stable than Model 2.
+
+\vspace{10pt}
+
+### Case 3: k = 20
+
+**Model 1**
+
+```{r, echo=FALSE}
+# set seed for reproducibility
+set.seed(123)
+
+pit_lm1_k20 = lm_spec %>%
+  fit_resamples(
+    pit_in ~ lap_time + tyre_life,
+    resamples = vfold_cv(miami2024, v = 20),
+    metrics = metric_set(mae, rmse)
+  )
+pit_lm1_k20 %>% collect_metrics()
+
+# get fold-by-fold results
+pit_lm1_k20 %>% unnest(.metrics) %>%
+  filter(.metric == "mae")
+```
+
+Based on the random folds above, MAE was best for fold 10 (0.026) and worst for fold 20 (0.090).
+
+**Model 2**
+
+```{r, echo=FALSE}
+# set seed for reproducibility
+set.seed(123)
+
+pit_lm2_k20 = lm_spec %>%
+  fit_resamples(
+    pit_in ~ lap_time + lap_number + compound + tyre_life,
+    resamples = vfold_cv(miami2024, v = 20),
+    metrics = metric_set(mae, rmse)
+  )
+pit_lm2_k20 %>% collect_metrics()
+
+# get fold-by-fold results
+pit_lm2_k20 %>% unnest(.metrics) %>%
+  filter(.metric == "mae")
+```
+
+Based on the random folds above, MAE was best for fold 10 (0.032) and worst for fold 20 (0.101).
+
+```{r, echo=FALSE}
+# 20-fold CV MAE and sd
+pit_lm1_k20 %>% unnest(.metrics) %>%
+  filter(.metric == "mae") %>%
+  summarize(mean = mean(.estimate), sd = sd(.estimate))
+
+pit_lm2_k20 %>% unnest(.metrics) %>%
+  filter(.metric == "mae") %>%
+  summarize(mean = mean(.estimate), sd = sd(.estimate))
+```
+
+In-sample and 20-fold CV MAE and standard deviation for both models.
+
++------------+---------------+----------------+--------------+---------------+
+| Model      | In-sample MAE | 20-fold CV MAE | In-sample SD | 20-fold CV SD |
++:===========+==============:+===============:+=============:+==============:+
+| `model_1`  | 0.05045       | 0.05086        | 0.15247      | 0.01785       |
++------------+---------------+----------------+--------------+---------------+
+| `model_2`  | 0.05975       | 0.05925        | 0.15035      | 0.01781       |
++------------+---------------+----------------+--------------+---------------+
+
+In the 20-fold CV setup, Model 1 performed better than Model 2 with a lower mean MAE, 0.05086 and 0.05925, respectively. Even with increased fold, the simpler model generalized better across the dataset.
+
+\vspace{10pt}
+
+### Comparison between different values of k
+
++------------+---------------+---------------+----------------+----------------+
+| Model      | In-sample MAE | 5-fold CV MAE | 10-fold CV MAE | 20-fold CV MAE |
++:===========+==============:+==============:+===============:+===============:+
+| `model_1`  | 0.05045       | 0.05073       | 0.05100        | 0.05086        |
++------------+---------------+---------------+----------------+----------------+
+| `model_2`  | 0.05975       | 0.05922       | 0.05939        | 0.05925        |
++------------+---------------+---------------+----------------+----------------+
+
+\vspace{10pt}
+
+Across all cross-validation settings (5, 10, and 20-fold), Model 1 consistently showed lower MAE than Model 2. The differences were small but consistent and this suggests that Model 1 is a better model than Model 2 in predicting pit-stops.
+
+Therefore, our final model based on the smallest CV error is:
+
+$$\mathbb{E}(pit\_in \mid lap\_time,\ tyre\_life) = \beta_0 + \beta_1(lap\_time) + \beta_2(tyre\_life)$$
+
+\newpage
+
+# Logistic Regression Model
+
+## Variables of Interest
+
+### Predictors:
+
+-   `lap_time`: Recorded time to complete a lap (seconds).
+-   `lap_number`: Lap number from which the telemetry data was recorded (number of laps).
+-   `tyre_life`: Number of laps completed on a set of tires (number of laps).
+-   `compound`: Type of tire used (SOFT, MEDIUM, HARD).
+
+### Response Variable:
+
+-   `pit_in`: Whether a driver made a pit stop during a lap where 1 indicates pit stop occurred, and 0 otherwise
+
+    \begin{align*}
+    Y_i &= \begin{cases} 1 & \text{ if a driver pitted on a lap } \\ 0 & \text{ otherwise (i.e., the driver did not pit on lap)} \end{cases}
+    \end{align*}
+
+## Our Logistic Regression Model
+
+We are interested in determining the probability of making a pit stop during the 2024 Miami Grand Prix, considering factors such as lap time, track progress, tire age, and the type of tire used.
+
+$$
+\begin{aligned} 
+\log(odds(pit\_in \mid lap\_time, \ lap\_number, \ tyre\_life, \ compound)) &= \beta_0 + \beta_1 (lap\_time) \\ &+ \beta_2(lap\_number) + \beta_3 (tyre\_life) \\ &+ \beta_4 \ I(compound = MEDIUM) \\ &+ \beta_5 \ I(compound = SOFT)
+\end{aligned}
+$$
+
+```{r, echo=FALSE}
+# factor `pit_in` for logistic regression analysis
+miami2024_glm <- miami2024 %>%
+  mutate(pit_in_fac = as.factor(pit_in))
+```
+
+```{r, echo=FALSE}
+# logistic regression model
+logistic_fit <- train(
+  form   = pit_in_fac ~ lap_time + lap_number + tyre_life + compound,
+  data   = miami2024_glm,
+  family = "binomial", # this is an argument to glm; response is 0 or 1, binomial
+  method = "glm",      # method for fit; "generalized linear model"
+  trControl = trainControl(method = "none")
+)
+
+summary(logistic_fit$finalModel)
+```
+
+### Interpretation of exponentiated $\hat{\beta}$ coefficients
+
+```{r, echo=FALSE}
+exp(logistic_fit$finalModel$coefficients)
+```
+
+-   $\exp(\beta_0)$: The odds of a driver making a pit stop during a lap, when lap time is 0 seconds, lap number is 0, 0 laps have been completed on the current set of tires, and the HARD compound is, is approximately $9.4088 \times 10^{-9}$.
+
+-   $\exp(\beta_1)$: For every of 1 second increase in lap time, the odds of a driver pitting increase by a factor of 1.1473.
+
+-   $\exp(\beta_2)$: For every additional lap (i.e., increase of 1 in the lap number), we expect the odds of a driver pitting to increase by a factor of 0.8521.
+
+-   $\exp(\beta_3)$: For each additional lap completed on the current set of tires, the odds of a driver pitting increase by a factor of 1.3166.
+
+-   $\exp(\beta_4)$: When using MEDIUM compound tires instead of HARD, the odds of a driver pitting increase by a factor of 1.6404, holding all other variables constant.
+
+-   $\exp(\beta_5)$: When using SOFT compound tires instead of HARD, we expect the odds of a driver pitting to increase by a factor of 6.4324, holding all other variables constant.
+
+#### Mathematically derive $\exp(\beta_1)$
+
+$$
+\begin{aligned}
+&\log(odds(pit\_in \mid lap\_time = a)) = -18.4816 + 0.1374a
+\\
+\\ 
+&\log(odds(pit\_in \mid lap\_time = a+1)) = -18.4816 + 0.1374(a+1)
+\end{aligned}
+$$
+
+$$
+\begin{aligned}
+& \log\left( \frac{odds(pit\_in \mid lap\_time = a+1)}{odds(pit\_in \mid lap\_time = a)} \right)\\
+&= \log(odds(pit\_in \mid lap\_time = a+1)) - \log(odds(pit\_in \mid lap\_time = a)) \\
+&= (-18.4816 + 0.1374(a+1)) - (-18.4816 + 0.1374) \\
+&= 0.1374  \\
+&= \hat{\beta_1}
+\end{aligned}
+$$
+
+Therefore, $\exp(\beta_1) = e^{0.1374} = 1.1473$
+
+### Predicting High Probability of a Pit Stop
+
+To predict a probability of a driver making a pit stop that is very close to 1, we need to input extreme values for the predictors. Based on the five-number summary of our data, we use the following scenario: a lap time of 148.74 seconds, lap number 57, SOFT compound, and a tire age of 45 laps.
+
+```{r, echo=FALSE}
+# miami2024_glm %>% 
+#   ggplot(aes(x=lap_time)) +
+#     geom_density(fill="#69b3a2", color="#e9ecef", alpha=0.8)
+
+summary(miami2024_glm)
+```
+
+```{r, echo=FALSE}
+log_prid_fst <- predict(logistic_fit$finalModel,
+            newdata = data.frame(lap_time = 148.74,
+                                 lap_number = 57,
+                                 tyre_life = 45,
+                                 compoundMEDIUM = 0,
+                                 compoundSOFT = 1),
+            type = "response")
+    
+odds_pitting_fst = exp(log_prid_fst)
+(prob_pitting_fst = odds_pitting_fst/(1+odds_pitting_fst))
+```
+
+Using our logistic regression model, we estimate the probability of a pit stop under these conditions to be approximately 0.731. This indicates a high likelihood of a pit stop given these extreme race conditions.
+
+### Predicting Pit Stops with our Logistic Regression Model
+
+-   Estimate the probability of a driver making a pit stop on a lap with the following conditions: 96.00 seconds lap time, 28th lap, 14.78 laps completed on a set of HARD tires.
+
+    ```{r, echo=FALSE}
+    log_prid_hard <- predict(logistic_fit$finalModel,
+            newdata = data.frame(lap_time = 96,
+                                 lap_number = 28,
+                                 tyre_life = 14.78,
+                                 compoundMEDIUM = 0,
+                                 compoundSOFT = 0),
+            type = "response")
+
+    odds_pitting_hard = exp(log_prid_hard)
+    (prob_pitting_hard = odds_pitting_hard/(1+odds_pitting_hard))
+    ```
+
+There is approximately a 50.08% probability that a driver will make a pit stop on this lap when using HARD tires, holding all other variables constant.
+
+<!-- -->
+
+-   Estimate the probability of a driver making a pit stop on a lap under the same conditions as above but using a set of MEDIUM tires.
+
+    ```{r, echo=FALSE}
+    log_prid_med <- predict(logistic_fit$finalModel,
+            newdata = data.frame(lap_time = 96,
+                                 lap_number = 28,
+                                 tyre_life = 14.78,
+                                 compoundMEDIUM = 1,
+                                 compoundSOFT = 0),
+            type = "response")
+
+    odds_pitting_med = exp(log_prid_med)
+    (prob_pitting_med = odds_pitting_med/(1+odds_pitting_med))
+    ```
+
+With MEDIUM tires, the probability of making a pit stop increases to 50.14%.
+
+<!-- -->
+
+-   Estimate the probability of a driver making a pit stop on a lap under the same conditions as above but using a set of SOFT tires.
+
+    ```{r, echo=FALSE}
+    log_prid_soft <- predict(logistic_fit$finalModel,
+            newdata = data.frame(lap_time = 96,
+                                 lap_number = 28,
+                                 tyre_life = 14.78,
+                                 compoundMEDIUM = 0,
+                                 compoundSOFT = 1),
+            type = "response")
+
+    odds_pitting_soft = exp(log_prid_soft)
+    (prob_pitting_soft = odds_pitting_soft/(1+odds_pitting_soft))
+    ```
+
+With SOFT tires, the probability increases slightly to 50.52%.
+
+While all the other variables stay the same, we predict that the probability a driver to made a pit stop is higher if the driver is on a set of SOFT tires compared to other compounds.
+
+## Pros/Cons of logistic regression vs. regular linear regression
+
+### Logistic Regression
+
++-----------+-------------------------------------------------------------------------------------------------------------------+
+| **Pros**  | Since logistic regression is based on a Bernoulli/binomial likelihood, it is a natural model for binary outcomes. |
+|           |                                                                                                                   |
+|           | Coefficients are interpretable in terms of odds ratios (with log-odds as the linear predictor).                   |
++-----------+-------------------------------------------------------------------------------------------------------------------+
+| **Cons**  | The relationship between predictors and the probability is not linear.                                            |
++-----------+-------------------------------------------------------------------------------------------------------------------+
+
+### Linear Regression
+
++-------------+--------------------------------------------------------------------------+
+| **Pros**    | Straightforward linear regression                                        |
+|             |                                                                          |
+|             | Easy to interpret the coefficients                                       |
++-------------+--------------------------------------------------------------------------+
+| **Cons**    | Cannot gaurantee that the predicted probabilities to be between 0 and 1. |
++-------------+--------------------------------------------------------------------------+
+
+# Conclusion
+The linear and logistic regression models provide a practical method for predicting pit-stop laps based on multiple factors, while k-fold cross-validation offers an approach for selecting the most optimized models. However, the prediction results from the logistic model were somewhat limited, with predictions averaging around 50% even with extreme parameters, making it challenging to accurately predict pit-stop laps. This limitation is understandable because predicting pit-stop timing in real races is one of the most crucial and difficult decisions in race strategy.
+
+For future studies, we could consider additional factors that influence car speeds or tire management, as well as apply methods that are capable of handling more complex models to observed more detailed and comprehensive analyses.
+
+# Appendix
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
