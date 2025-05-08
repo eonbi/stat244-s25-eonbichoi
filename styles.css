@@ -1,13 +1,11 @@
 /* css styles */
 
-/* Light text for dark themes */
-.cell-output pre {
-  color: #89cc04 !important;
-}
 
-code {
-  color: #CC8899 !important;         /* black or dark gray text */
-  background-color: #ffffff !important;  /* white background */
-  padding: 2px 4px;
-  border-radius: 4px;
+/* Inline code (like `this`) in text — purple, no background */
+/* R code output (from chunks) — green */
+/* Alternatively, target any preformatted text blocks for R output specifically */
+pre {
+  color: #89cc04 !important;  /* green text */
+  background-color: none !important; /* no background */
 }
+ 
